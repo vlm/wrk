@@ -46,6 +46,7 @@ typedef struct connection {
     int fd;
     uint64_t start;
     uint64_t latency;
+    uint64_t pending;
     char buf[RECVBUF];
 } connection;
 
