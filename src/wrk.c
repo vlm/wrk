@@ -81,15 +81,9 @@ int main(int argc, char **argv) {
     struct addrinfo *addrs, *addr;
     struct http_parser_url parser_url;
     struct sigaction sigint_action;
+    struct sigaction sigpipe_action;
     char *url, **headers;
     int rc;
-
-    /*
-     * To avoid dying on SIGPIPE when the remote [local] host suddely dies,
-     * we should ignore SIGPIPE. This is handy when working against unstable
-     * servers which may abruptly terminate on assertions, segfaults, etc.
-     */
-    signal(SIGPIPE, SIG_IGN);
 
     /* Number of '-H' headers specified. */
     headers = zmalloc(argc * sizeof(char *));
@@ -247,6 +241,14 @@ int main(int argc, char **argv) {
     uint64_t connections = cfg.connections / cfg.threads;
     uint64_t requests_cnt    = cfg.requests    / cfg.threads;
 
+    /*
+     * Do not die on SIGPIPE.
+     */
+    sigpipe_action.sa_handler = SIG_IGN;
+    sigemptyset(&sigpipe_action.sa_mask);
+    sigpipe_action.sa_flags = SA_RESTART;
+    sigaction(SIGPIPE, &sigpipe_action, NULL);
+
     for (long i = 0; i < cfg.threads; i++) {
         thread *t = &threads[i];
         t->connections   = connections;
@@ -260,6 +262,18 @@ int main(int argc, char **argv) {
         }
     }
 
+    /*
+     * React on Ctrl+C. We install the handler it after all the threads
+     * have been created to avoid a race condition. The signal handler
+     * depends on the structures initialized in the above loop.
+     */
+    sigint_action.sa_handler = &handle_ctrl_c;
+    sigemptyset(&sigint_action.sa_mask);
+    sigint_action.sa_flags = SA_RESETHAND;
+    /* reset handler in case when pthread_cancel didn't stop
+       threads for some reason */
+    sigaction(SIGINT, &sigint_action, NULL);
+
     printf("Making %"PRIu64" requests to %s\n", cfg.requests, url);
     printf("  %"PRIu64" threads and %"PRIu64" connections\n", cfg.threads, cfg.connections);
 
@@ -268,13 +282,6 @@ int main(int argc, char **argv) {
     uint64_t conns = 0;
     uint64_t bytes    = 0;
     errors errors     = { 0 };
-
-    sigint_action.sa_handler = &sig_handler;
-    sigemptyset (&sigint_action.sa_mask);
-    /* reset handler in case when pthread_cancel didn't stop
-       threads for some reason */
-    sigint_action.sa_flags = SA_RESETHAND;
-    sigaction(SIGINT, &sigint_action, NULL);
 
     for (uint64_t i = 0; i < cfg.threads; i++) {
         thread *t = &threads[i];
@@ -324,7 +331,7 @@ int main(int argc, char **argv) {
 }
 
 /* Stop threads, so main thread can print stats when join's return */
-static void sig_handler(int signum) {
+static void handle_ctrl_c(int signum) {
     int s;
     printf("interrupted\n");
     for (uint64_t i = 0; i < cfg.threads; i++) {
@@ -335,6 +342,13 @@ static void sig_handler(int signum) {
 
 void *thread_main(void *arg) {
     thread *thread = arg;
+
+    /*
+     * To avoid dying on SIGPIPE when the remote [local] host suddely dies,
+     * we should ignore SIGPIPE. This is handy when working against unstable
+     * servers which may abruptly terminate on assertions, segfaults, etc.
+     */
+    signal(SIGPIPE, SIG_IGN);
 
     int connections_estimate = 10 + cfg.connections * 3;
     aeEventLoop *loop = aeCreateEventLoop(connections_estimate);

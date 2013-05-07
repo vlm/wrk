@@ -55,7 +55,7 @@ typedef struct connection {
 
 struct config;
 
-static void sig_handler(int);
+static void handle_ctrl_c(int);
 static void *thread_main(void *);
 static int connect_socket(thread *, connection *);
 static int reconnect_socket(thread *, connection *);
