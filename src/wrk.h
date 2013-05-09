@@ -13,6 +13,8 @@
 #include "http_parser.h"
 #include "tinymt64.h"
 
+#include "wrk_config.h"
+
 #define VERSION  "1.0.0"
 #define RECVBUF  8192
 #define SAMPLES  100000
@@ -42,6 +44,7 @@ typedef struct {
     uint64_t start;
     tinymt64_t rand;
     errors errors;
+    struct wrk_destination *destination;
 } thread;
 
 typedef struct connection {
@@ -52,8 +55,6 @@ typedef struct connection {
     uint64_t latency;
     char buf[RECVBUF];
 } connection;
-
-struct config;
 
 static void handle_ctrl_c(int);
 static void *thread_main(void *);
@@ -70,9 +71,7 @@ static int request_complete(http_parser *);
 static uint64_t time_us();
 static uint64_t rand64(tinymt64_t *, uint64_t);
 
-static char *extract_url_part(char *, struct http_parser_url *, enum http_parser_url_fields);
-
-static int parse_args(struct config *, char **, char **, int, char **);
+static int parse_args(struct wrk_config *, char **, char **, int, char **);
 static void print_stats_header();
 static void print_stats(char *, stats *, char *(*)(long double));
 
